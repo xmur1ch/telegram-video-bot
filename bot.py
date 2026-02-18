@@ -1,14 +1,24 @@
+# bot.py
+# pip install python-telegram-bot==20.* yt-dlp groq
+
 import os
 import re
 import asyncio
 import logging
 import yt_dlp
 
-from telegram import Update
+from telegram import Update, MessageEntity
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters, CommandHandler
 
-# ====== ВСТАВЬ СЮДА СВОЙ ТОКЕН ======
-TOKEN = "8348752030:AAEK38inXyBghSGOAnxBCG6GxRYei-AJA_4"
+from groq import AsyncGroq
+
+# ====== Telegram token ======
+TOKEN = "8571800137:AAFTn6fNl-WvPv8qnLZzSOozWFdPDqNilKk"
+
+# ====== Groq key (set in env: setx GROQ_API_KEY "gsk_...") ======
+GROQ_API_KEY = "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"
+
+groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -22,7 +32,7 @@ def is_tiktok_url(text: str) -> bool:
 
 
 def is_instagram_url(text: str) -> bool:
-    return bool(re.search(r"(?:https?://)?(?:www\.)?(?:www\.)?(?:instagram\.com|instagr\.am)/", text or ""))
+    return bool(re.search(r"(?:https?://)?(?:www\.)?(?:instagram\.com|instagr\.am)/", text or ""))
 
 
 def is_supported_url(text: str) -> bool:
@@ -31,7 +41,6 @@ def is_supported_url(text: str) -> bool:
 
 def get_opts():
     opts = {
-        # ВАЖНО: один файл mp4, без ffmpeg
         "format": "mp4/best",
         "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
         "noplaylist": True,
@@ -48,7 +57,7 @@ def get_opts():
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/120 Safari/537.36"
             )
-        }
+        },
     }
 
     # cookies.txt — по желанию (для Instagram часто нужно)
@@ -64,45 +73,120 @@ def ytdlp_download(url: str) -> str:
         return ydl.prepare_filename(info)
 
 
+def is_bot_mentioned(update: Update, bot_username: str) -> bool:
+    msg = update.message
+    if not msg or not msg.entities:
+        return False
+
+    text = msg.text or ""
+    for ent in msg.entities:
+        if ent.type == MessageEntity.MENTION:
+            mention_text = text[ent.offset : ent.offset + ent.length]
+            if mention_text.lower() == f"@{bot_username.lower()}":
+                return True
+    return False
+
+
+def strip_bot_mention(text: str, bot_username: str) -> str:
+    return re.sub(rf"@{re.escape(bot_username)}\b", "", text, flags=re.IGNORECASE).strip()
+
+
+async def ask_llm(user_text: str) -> str:
+    # Модель можно поменять. Часто используют: "llama-3.1-8b-instant" или "llama-3.1-70b-versatile"
+    resp = await groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": "Ты полезный ассистент. Отвечай по-русски, кратко и по делу."},
+            {"role": "user", "content": user_text},
+        ],
+        temperature=0.7,
+    )
+    return (resp.choices[0].message.content or "").strip()
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 Отправь ссылку TikTok или Instagram (скачаю видео без ffmpeg)")
+    await update.message.reply_text(
+        "🚀 Отправь ссылку TikTok/Instagram — скачаю видео.\n"
+        "💬 Чтобы спросить ИИ: напиши `gpt: ...` или упомяни меня `@bot ...`\n"
+        "↩️ Можно продолжать диалог реплаем на мой ответ."
+    )
 
 
-async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (update.message.text or "").strip()
-
-    # реагируем только на TikTok или Instagram ссылки
-    if not is_supported_url(text):
+async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg or not msg.text:
         return
 
-    loop = asyncio.get_event_loop()
-    file_path = None
+    text = msg.text.strip()
+
+    # 1) Скачивание видео по ссылкам
+    if is_supported_url(text):
+        loop = asyncio.get_event_loop()
+        file_path = None
+        try:
+            await msg.reply_text("⏳ Скачиваю...")
+            file_path = await loop.run_in_executor(None, lambda: ytdlp_download(text))
+            with open(file_path, "rb") as video_file:
+                await msg.reply_video(video=video_file)
+        except Exception as e:
+            logger.exception("Download error")
+            await msg.reply_text(f"❌ Ошибка загрузки\n{e}")
+        finally:
+            if file_path and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+        return
+
+    # 2) Триггер ИИ: gpt: / @bot / reply на сообщение бота
+    bot_username = (context.bot.username or "").lstrip("@")
+    is_reply_to_bot = (
+        msg.reply_to_message is not None
+        and msg.reply_to_message.from_user is not None
+        and msg.reply_to_message.from_user.id == context.bot.id
+    )
+
+    triggered = text.lower().startswith("gpt:") or is_reply_to_bot
+    if bot_username:
+        triggered = triggered or is_bot_mentioned(update, bot_username)
+
+    if not triggered:
+        return
+
+    prompt = text
+    if prompt.lower().startswith("gpt:"):
+        prompt = prompt[4:].strip()
+    if bot_username:
+        prompt = strip_bot_mention(prompt, bot_username)
+
+    if not prompt:
+        await msg.reply_text("Напиши вопрос после `gpt:` или после упоминания 🙂")
+        return
 
     try:
-        await update.message.reply_text("⏳ Скачиваю...")
+        await msg.reply_chat_action("typing")
+        answer = await ask_llm(prompt)
 
-        file_path = await loop.run_in_executor(None, lambda: ytdlp_download(text))
+        if not answer:
+            answer = "Не смог сформировать ответ. Попробуй переформулировать вопрос."
 
-        with open(file_path, "rb") as video_file:
-            await update.message.reply_video(video=video_file)
+        # лимит Telegram ~4096 символов
+        if len(answer) > 3900:
+            answer = answer[:3900] + "…"
+
+        await msg.reply_text(answer)
 
     except Exception as e:
-        logger.exception("Download error")
-        await update.message.reply_text(f"❌ Ошибка загрузки\n{e}")
-
-    finally:
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
+        # Частые ошибки: неверный ключ/лимиты. Покажем текст ошибки.
+        logger.exception("LLM error")
+        await msg.reply_text(f"❌ Ошибка ИИ\n{e}")
 
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, router))
 
     print("BOT STARTED 🚀")
     app.run_polling()
