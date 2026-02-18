@@ -13,7 +13,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 from groq import AsyncGroq
 
 # ====== Telegram token ======
-TOKEN = "8571800137:AAFTn6fNl-WvPv8qnLZzSOozWFdPDqNilKk"
+TOKEN = "8348752030:AAEK38inXyBghSGOAnxBCG6GxRYei-AJA_4"
 
 # ====== Groq key (set in env: setx GROQ_API_KEY "gsk_...") ======
 GROQ_API_KEY = "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"
@@ -194,3 +194,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
