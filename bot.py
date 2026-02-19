@@ -7,7 +7,7 @@ import asyncio
 import logging
 import yt_dlp
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
 
 from telegram import Update, MessageEntity
@@ -320,6 +320,12 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("LLM error")
         await msg.reply_text(f"❌ Ошибка ИИ\n{e}")
 
+async def weekly_dmb_job(context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(
+        chat_id=DMB_CHAT_ID,
+        text=build_dmb_text(),
+        parse_mode="Markdown",
+    )
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -329,6 +335,24 @@ def main():
     app.add_handler(CommandHandler("dmb", dmb))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, router))
+        # ===== Weekly DMB: every Friday 21:00 =====
+    now = datetime.now()
+    target_weekday = 4      # Friday=4 (Mon=0 ... Sun=6)
+    target_time = time(21, 0)  # 21:00
+
+    days_ahead = (target_weekday - now.weekday()) % 7
+    first_run = datetime.combine((now + timedelta(days=days_ahead)).date(), target_time)
+
+    # если сегодня уже позже 21:00 — переносим на следующую неделю
+    if first_run <= now:
+        first_run += timedelta(days=7)
+
+    app.job_queue.run_repeating(
+        weekly_dmb_job,
+        interval=7 * 24 * 60 * 60,  # раз в 7 дней
+        first=first_run,
+        name="weekly_dmb",
+    )
 
     print("BOT STARTED 🚀")
     app.run_polling()
@@ -336,3 +360,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
