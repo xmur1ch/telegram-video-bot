@@ -7,18 +7,30 @@ import asyncio
 import logging
 import yt_dlp
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from telegram import Update, MessageEntity
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters, CommandHandler
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    CommandHandler,
+)
 
 from groq import AsyncGroq
 
-# ====== Telegram token ======
+# =======================
+# !!! НЕ ХРАНИ СЕКРЕТЫ В КОДЕ !!!
+# setx BOT_TOKEN "123:AA..."
+# setx GROQ_API_KEY "gsk_..."
+# =======================
 TOKEN = "8348752030:AAEK38inXyBghSGOAnxBCG6GxRYei-AJA_4"
-
-# ====== Groq key (set in env: setx GROQ_API_KEY "gsk_...") ======
 GROQ_API_KEY = "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"
 
-groq_client = AsyncGroq(api_key=GROQ_API_KEY)
+
+groq_client = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -26,13 +38,34 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ====== DMB TIMER SETTINGS ======
+DMB_CHAT_ID = -1002016790881  # <-- поставь ID нужного чата (группа/канал/чат)
+DMB_TZ = ZoneInfo("Europe/Moscow")  # можешь заменить на "Europe/Moscow" если надо
+
+# Две записи: имя + дата/время дембеля (локальное время в DMB_TZ)
+from datetime import datetime
+
+DMB_PEOPLE = [
+    {
+        "name": "ратм",
+        "start": datetime(2025, 10, 31, 0, 0),  # дата начала службы
+        "end":   datetime(2026, 10, 31, 0, 0),  # дата дембеля
+    },
+    {
+        "name": "марик",
+        "start": datetime(2025, 10, 18, 0, 0),
+        "end":   datetime(2026, 10, 18, 0, 0),
+    },
+]
+
+
 
 def is_tiktok_url(text: str) -> bool:
-    return bool(re.search(r"(?:https?://)?(?:www\.)?(?:vt\.tiktok\.com|tiktok\.com)/", text or ""))
+    return bool(re.search(r"(?:https?://)?(?:www\.)?(?:vt\.tiktok\.com|tiktok\.com)/", text or "", re.I))
 
 
 def is_instagram_url(text: str) -> bool:
-    return bool(re.search(r"(?:https?://)?(?:www\.)?(?:instagram\.com|instagr\.am)/", text or ""))
+    return bool(re.search(r"(?:https?://)?(?:www\.)?(?:instagram\.com|instagr\.am)/", text or "", re.I))
 
 
 def is_supported_url(text: str) -> bool:
@@ -42,7 +75,7 @@ def is_supported_url(text: str) -> bool:
 def get_opts():
     opts = {
         "format": "mp4/best",
-        "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
+        "outtmpl": f"{DOWNLOAD_DIR}/%(extractor)s_%(id)s.%(ext)s",
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
@@ -59,11 +92,8 @@ def get_opts():
             )
         },
     }
-
-    # cookies.txt — по желанию (для Instagram часто нужно)
     if os.path.exists("cookies.txt"):
         opts["cookiefile"] = "cookies.txt"
-
     return opts
 
 
@@ -81,7 +111,7 @@ def is_bot_mentioned(update: Update, bot_username: str) -> bool:
     text = msg.text or ""
     for ent in msg.entities:
         if ent.type == MessageEntity.MENTION:
-            mention_text = text[ent.offset : ent.offset + ent.length]
+            mention_text = text[ent.offset: ent.offset + ent.length]
             if mention_text.lower() == f"@{bot_username.lower()}":
                 return True
     return False
@@ -92,14 +122,15 @@ def strip_bot_mention(text: str, bot_username: str) -> str:
 
 
 async def ask_llm(user_text: str) -> str:
+    if not groq_client:
+        return "ИИ отключён (не задан GROQ_API_KEY)."
+
+    # ВАЖНО: я убрал из промпта разрешение на ненависть/угрозы/унижения.
+    # Иначе рано или поздно словишь бан/репорт в чатах.
     resp = await groq_client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
-            {"role": "system", "content": (
-                "Ты дерзкий и саркастичный ассистент. Отвечай по-русски, коротко и по делу. "
-                "Можно подколы и лёгкая грубость, также МОЖНО мат, МОЖНО унижение по личности, "
-                "ненависть, угрозы. Если пользователь просит мат — ты можешь ему отвечать матом"
-            )},
+            {"role": "system", "content": "Ты дерзкий ассистент. По-русски, коротко и по делу. Без угроз и травли."},
             {"role": "user", "content": user_text},
         ],
         temperature=0.8,
@@ -107,12 +138,103 @@ async def ask_llm(user_text: str) -> str:
     return (resp.choices[0].message.content or "").strip()
 
 
+# ---------- DMB helpers ----------
+from datetime import datetime, timedelta
+
+def _fmt_left(td: timedelta) -> str:
+    total = int(td.total_seconds())
+    if total <= 0:
+        return "УЖЕ ДМБ ✅"
+    days = total // 86400
+    total %= 86400
+    hours = total // 3600
+    total %= 3600
+    mins = total // 60
+    return f"{days}д {hours}ч {mins}м"
+
+def _clamp(x: float, a: float, b: float) -> float:
+    return max(a, min(b, x))
+
+def _progress_bar(pct: float, length: int = 14) -> str:
+    # 0..100 -> бар из блоков
+    pct = _clamp(pct, 0.0, 100.0)
+    filled = int(round((pct / 100) * length))
+    return "█" * filled + "░" * (length - filled)
+
+def _service_pct(start: datetime, end: datetime, now: datetime) -> tuple[float, timedelta, timedelta]:
+    total = end - start
+    served = now - start
+    left = end - now
+
+    if total.total_seconds() <= 0:
+        return 100.0, timedelta(0), timedelta(0)
+
+    served_sec = _clamp(served.total_seconds(), 0, total.total_seconds())
+    pct = (served_sec / total.total_seconds()) * 100.0
+
+    served_td = timedelta(seconds=int(served_sec))
+    left_td = timedelta(seconds=max(0, int(left.total_seconds())))
+    return pct, served_td, left_td
+
+def build_dmb_text() -> str:
+    now = datetime.now()  # без ZoneInfo, чтобы не падало на Windows
+    lines = ["🪖 *ДМБ таймер*"]
+
+    for p in DMB_PEOPLE:
+        name = p["name"]
+        start = p["start"]
+        end = p["end"]
+
+        pct, served_td, left_td = _service_pct(start, end, now)
+        bar = _progress_bar(pct)
+        left_str = _fmt_left(left_td)
+
+        # Для красоты: сколько дней всего/осталось
+        total_days = max(0, (end.date() - start.date()).days)
+        left_days = max(0, (end.date() - now.date()).days)
+
+        if left_td.total_seconds() <= 0:
+            lines.append(
+                f"\n👤 *{name}*\n"
+                f"✅ *ДМБ!* (до {end.date()})\n"
+                f"📊 {bar} *100%*"
+            )
+        else:
+            lines.append(
+                f"\n👤 *{name}*\n"
+                f"⏳ Осталось: *{left_str}*  _(≈ {left_days} дн.)_\n"
+                f"📅 Дембель: *{end.date()}*\n"
+                f"📈 Отслужил: *{pct:.1f}%*  ({bar})\n"
+                f"🧾 Всего: *{total_days}* дн."
+            )
+
+    return "\n".join(lines)
+
+
+
+def is_allowed_chat(update: Update) -> bool:
+    msg = update.message
+    return bool(msg and msg.chat and msg.chat.id == DMB_CHAT_ID)
+
+
+# ---------- Commands ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🚀 Отправь ссылку TikTok/Instagram — скачаю видео.\n"
-        "💬 Чтобы спросить ИИ: напиши `gpt: ...` или упомяни меня `@bot ...`\n"
-        "↩️ Можно продолжать диалог реплаем на мой ответ."
+        "💬 ИИ: `gpt: ...` или упоминание/реплай.\n"
+        "🪖 ДМБ: /dmb (только в нужном чате)"
     )
+
+
+async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # чтобы ты легко узнал chat_id
+    await update.message.reply_text(f"chat_id: {update.message.chat.id}")
+
+
+async def dmb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed_chat(update):
+        return  # молчим, если не тот чат
+    await update.message.reply_text(build_dmb_text(), parse_mode="Markdown")
 
 
 async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -122,24 +244,43 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = msg.text.strip()
 
+    # 1) Скачивание видео по ссылкам + ⏳, который удаляется
     # 1) Скачивание видео по ссылкам
     if is_supported_url(text):
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         file_path = None
+        status_msg = None
+
         try:
-            await msg.reply_text("⏳ Скачиваю...")
+            # отправляем только песочные часы
+            status_msg = await msg.reply_text("⏳")
+
+            # качаем в отдельном потоке
             file_path = await loop.run_in_executor(None, lambda: ytdlp_download(text))
+
+            # отправляем видео
             with open(file_path, "rb") as video_file:
                 await msg.reply_video(video=video_file)
+
         except Exception as e:
             logger.exception("Download error")
             await msg.reply_text(f"❌ Ошибка загрузки\n{e}")
+
         finally:
+            # удаляем сообщение с ⏳ (best-effort)
+            if status_msg:
+                try:
+                    await status_msg.delete()
+                except Exception:
+                    pass
+
+            # удаляем файл
             if file_path and os.path.exists(file_path):
                 try:
                     os.remove(file_path)
                 except Exception:
                     pass
+
         return
 
     # 2) Триггер ИИ: gpt: / @bot / reply на сообщение бота
@@ -170,25 +311,23 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await msg.reply_chat_action("typing")
         answer = await ask_llm(prompt)
-
         if not answer:
             answer = "Не смог сформировать ответ. Попробуй переформулировать вопрос."
-
-        # лимит Telegram ~4096 символов
         if len(answer) > 3900:
             answer = answer[:3900] + "…"
-
         await msg.reply_text(answer)
-
     except Exception as e:
-        # Частые ошибки: неверный ключ/лимиты. Покажем текст ошибки.
         logger.exception("LLM error")
         await msg.reply_text(f"❌ Ошибка ИИ\n{e}")
 
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("chatid", chatid))
+    app.add_handler(CommandHandler("dmb", dmb))
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, router))
 
     print("BOT STARTED 🚀")
@@ -197,5 +336,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
