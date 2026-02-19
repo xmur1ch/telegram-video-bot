@@ -1,6 +1,7 @@
-python-telegram-bot==21.7
+python-telegram-bot[job-queue]==21.7
 yt-dlp
 groq
 aiohttp
 requests
 boto3
+tzdata
