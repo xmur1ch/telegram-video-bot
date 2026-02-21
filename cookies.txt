@@ -24,17 +24,22 @@
 .youtube.com	TRUE	/	TRUE	1802873866	__Secure-3PSIDCC	AKEyXzV-Nm-ywyVLI8lBABqitN_KEEV3s6yooluKQhaWvgL3T6IhuBiyZxzJuBFfWPZDwSQtdw
 .youtube.com	TRUE	/	TRUE	1786889739	__Secure-ROLLOUT_TOKEN	CPeDrrTUvfeMsgEQsrmSp6DHjwMYjJHLpdvgkgM%3D
 www.youtube.com	FALSE	/	FALSE	1771424134	funnelData	{"loupe":{"percent":64,"isPanelShown":false},"cursor":{"percent":80,"isPanelShown":false},"blurb":{"percent":65,"isPanelShown":false},"darkmood":{"percent":33,"isPanelShown":false}}
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
 .instagram.com	TRUE	/	TRUE	1804948193	datr	9PqFaSOftoguZqmWRwpj-GMz
 .instagram.com	TRUE	/	TRUE	1801924193	ig_did	5D3F1636-A1A9-45F4-8DFD-0E0A69C4E03F
 .instagram.com	TRUE	/	TRUE	1804948195	mid	aYX69AALAAEjEteGuQGLZhnmBNaN
 .instagram.com	TRUE	/	TRUE	1802292134	ig_nrcb	1
 .instagram.com	TRUE	/	TRUE	1805901858	ps_l	1
 .instagram.com	TRUE	/	TRUE	1805901858	ps_n	1
-.instagram.com	TRUE	/	TRUE	1771973861	wd	1912x956
-.instagram.com	TRUE	/	TRUE	1805929325	csrftoken	Ad0Owu5UHevepGIP1z5o34dUCNm6Yttk
-.instagram.com	TRUE	/	TRUE	1779145325	ds_user_id	80795665970
-.instagram.com	TRUE	/	TRUE	1802905055	sessionid	80795665970%3AL2X607Zf5Of0zZ%3A5%3AAYg631xU-vWIckoS7I_rihvOOafT8xTeudwU823x8g
-.instagram.com	TRUE	/	TRUE	0	rur	"RVA\05480795665970\0541802905325:01fe538c8ce3d78d4e149cb4e23bf2d4d36b4be3c0b623fbb8d581df5925a98f3575dfb7"
+.instagram.com	TRUE	/	TRUE	1772302219	wd	1912x956
+.instagram.com	TRUE	/	TRUE	1806257584	csrftoken	Ad0Owu5UHevepGIP1z5o34dUCNm6Yttk
+.instagram.com	TRUE	/	TRUE	1779473584	ds_user_id	80795665970
+.instagram.com	TRUE	/	TRUE	1803232902	sessionid	80795665970%3AiWaxG2LM9mTIZD%3A27%3AAYiHS7dvB9LWylRijeg9aCZ7FdoqnU4o4kJvIQgLIg
+.instagram.com	TRUE	/	TRUE	0	rur	"RVA\05480795665970\0541803233586:01fea9a4662e077c88c4b860b00f578d7c772fdf68ff1cd7a7a4a07925975e99d0f296ed"
+
 # Netscape HTTP Cookie File
 # https://curl.haxx.se/rfc/cookie_spec.html
 # This is a generated file! Do not edit.
@@ -76,6 +81,7 @@ www.tiktok.com	FALSE	/	FALSE	1771527920	_waftokenid	eyJ2Ijp7ImEiOiJ6YTdqNUlwem1u
 .tiktok.com	TRUE	/	FALSE	1803063631	odin_tt	705934014fc05500c810708bf931f9ed07a4df6e9f92c5d7bd7d2ebe04324acd88472d23372fe3401075cf8002f70e05bbefd0acdb546dd52556bd2dc95ac8c57cfbd3d8503bb76eba85047a4a1896e1
 www.tiktok.com	FALSE	/	FALSE	1779303683	msToken	43q6RIl0gBVYMetO8P5XMru_ChUoDVIjEWTniaLjnoQlV1mP7szu4V7FycTXfveCW6y1J_ijI6zBRQWuL4zznagItYEojzBqa8sYzxUk4RPCmbqsXpLGib4VmYuf7AjKdDBdjFwDwq8McWsr8A3-OwbS
 .tiktok.com	TRUE	/	TRUE	1772391690	msToken	mP8jHaJuY99f3xA30x_gbZRQg_ie0B55jcClwWnFo81pZPP9L4LM0DgJTASfxAxTVZ9q02avGDV6eKuEzCj47xQm53eFYT_hjdD4oURaZRdWh4eILv1D-_C4CkuITUQtsuu1lrmMA8UeIxOYptYhfWD3
+
 
 
 
