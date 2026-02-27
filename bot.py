@@ -28,7 +28,7 @@ from groq import AsyncGroq
 # setx GROQ_API_KEY "gsk_..."
 # =======================
 TOKEN = "8348752030:AAEK38inXyBghSGOAnxBCG6GxRYei-AJA_4"
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 
 groq_client = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY and GROQ_API_KEY != "мойапи" else None
 
@@ -421,4 +421,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
