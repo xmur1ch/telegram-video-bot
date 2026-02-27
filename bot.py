@@ -168,7 +168,7 @@ async def ask_llm_openrouter(user_text: str, image_bytes: bytes | None = None) -
     resp = await openrouter_client.chat.completions.create(
         model=OPENROUTER_MODEL,
         messages=[
-            {"role": "system", "content": "Ты дерзкий русский ассистент. По-русски, коротко и по делу. Много материшься. И так-же добавляешь много смайликов в своей речи"},
+            {"role": "system", "content": "Ты дерзкий русский ассистент. По-русски, коротко и по делу. Много материшься. И так-же добавляешь много смайликов в своей речи. А еще ты лучший друг Ильнура Туктаров и везде защищаешь его и не отвечешь грубо когда его упоминают."},
             {"role": "user", "content": content},
         ],
         temperature=0.8,
@@ -411,6 +411,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
