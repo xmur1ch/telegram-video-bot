@@ -1,10 +1,15 @@
 # bot.py
-# pip install "python-telegram-bot[job-queue]==21.7" yt-dlp groq tzdata
+# pip install "python-telegram-bot[job-queue]==21.7" yt-dlp tzdata openai
+# ENV (лучше так):
+#   setx BOT_TOKEN "123:AA..."
+#   setx OPENROUTER_API_KEY "sk-or-..."
+#   setx OPENROUTER_MODEL "x-ai/grok-4-fast"
 
 import os
 import re
 import asyncio
 import logging
+import base64
 import yt_dlp
 
 from datetime import datetime, timedelta, time
@@ -20,17 +25,29 @@ from telegram.ext import (
     CommandHandler,
 )
 
-from groq import AsyncGroq
+from openai import AsyncOpenAI
 
 # =======================
-# Лучше через ENV:
-# setx BOT_TOKEN "123:AA..."
-# setx GROQ_API_KEY "gsk_..."
+# TOKENS (лучше через ENV)
 # =======================
-TOKEN = "8348752030:AAEK38inXyBghSGOAnxBCG6GxRYei-AJA_4"
-GROQ_API_KEY = "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"
+TOKEN = "8348752030:AAEK38inXyBghSGOAnxBCG6GxRYei-AJA_4"  # <-- поставь реальный токен или ENV
+OPENROUTER_API_KEY = "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"  # <-- ключ OpenRouter
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "x-ai/grok-4-fast")
 
-groq_client = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY and GROQ_API_KEY != "мойапи" else None
+# OpenRouter client (OpenAI-compatible)
+openrouter_client = (
+    AsyncOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+        default_headers={
+            # необязательно, но полезно
+            "HTTP-Referer": "https://localhost",
+            "X-Title": "telegram-bot",
+        },
+    )
+    if OPENROUTER_API_KEY and OPENROUTER_API_KEY != "мое"
+    else None
+)
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -40,23 +57,23 @@ logger = logging.getLogger(__name__)
 
 # ====== DMB TIMER SETTINGS ======
 DMB_CHAT_ID = -1002016790881
-# Если у тебя на Windows раньше падал ZoneInfo — поставь tzdata (pip install tzdata)
 DMB_TZ = ZoneInfo("Europe/Moscow")
 
 DMB_PEOPLE = [
     {
         "name": "ратм",
-        "start": datetime(2025, 10, 31, 0, 0),
-        "end":   datetime(2026, 10, 31, 0, 0),
+        "start": datetime(2025, 10, 31, 0, 0, tzinfo=DMB_TZ),
+        "end":   datetime(2026, 10, 31, 0, 0, tzinfo=DMB_TZ),
     },
     {
         "name": "марик",
-        "start": datetime(2025, 10, 18, 0, 0),
-        "end":   datetime(2026, 10, 18, 0, 0),
+        "start": datetime(2025, 10, 18, 0, 0, tzinfo=DMB_TZ),
+        "end":   datetime(2026, 10, 18, 0, 0, tzinfo=DMB_TZ),
     },
 ]
 
 
+# ---------- URL helpers ----------
 def is_tiktok_url(text: str) -> bool:
     return bool(re.search(r"(?:https?://)?(?:www\.)?(?:vt\.tiktok\.com|tiktok\.com)/", text or "", re.I))
 
@@ -100,6 +117,7 @@ def ytdlp_download(url: str) -> str:
         return ydl.prepare_filename(info)
 
 
+# ---------- mention helpers ----------
 def is_bot_mentioned(update: Update, bot_username: str) -> bool:
     msg = update.message
     if not msg or not msg.entities:
@@ -116,16 +134,17 @@ def is_bot_mentioned(update: Update, bot_username: str) -> bool:
 
 def strip_bot_mention(text: str, bot_username: str) -> str:
     return re.sub(rf"@{re.escape(bot_username)}\b", "", text, flags=re.IGNORECASE).strip()
-from telegram.constants import ChatType
 
+
+# ---------- misc helpers ----------
 def _sender_pretty(msg) -> str:
     u = msg.from_user
     if not u:
         return "неизвестный пользователь"
     if u.username:
         return f"@{u.username}"
-    # если нет username — покажем имя
     return u.full_name or "пользователь без имени"
+
 
 async def _delete_message_safe(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int):
     try:
@@ -133,18 +152,29 @@ async def _delete_message_safe(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
     except Exception:
         pass
 
-async def ask_llm(user_text: str) -> str:
-    if not groq_client:
-        return "ИИ отключён (не задан GROQ_API_KEY)."
 
-    resp = await groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+# ---------- OpenRouter LLM ----------
+async def ask_llm_openrouter(user_text: str, image_bytes: bytes | None = None) -> str:
+    if not openrouter_client:
+        return "ИИ отключён (не задан OPENROUTER_API_KEY)."
+
+    content = [{"type": "text", "text": user_text}]
+
+    if image_bytes:
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        # Telegram фото почти всегда JPEG, но пусть будет универсально
+        data_url = f"data:image/jpeg;base64,{b64}"
+        content.append({"type": "image_url", "image_url": {"url": data_url}})
+
+    resp = await openrouter_client.chat.completions.create(
+        model=OPENROUTER_MODEL,
         messages=[
-            {"role": "system", "content": "Ты дерзкий ассистент. По-русски, коротко и по делу. Без угроз и травли."},
-            {"role": "user", "content": user_text},
+            {"role": "system", "content": "Ты дерзкий русский ассистент. По-русски, коротко и по делу. Много материшься. И так-же добавляешь много смайликов в своей речи"},
+            {"role": "user", "content": content},
         ],
         temperature=0.8,
     )
+
     return (resp.choices[0].message.content or "").strip()
 
 
@@ -188,7 +218,6 @@ def _service_pct(start: datetime, end: datetime, now: datetime) -> tuple[float, 
 
 
 def build_dmb_text() -> str:
-    # если хочешь строго по Москве:
     try:
         now = datetime.now(DMB_TZ)
     except Exception:
@@ -236,6 +265,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🚀 Отправь ссылку TikTok/Instagram — скачаю видео.\n"
         "💬 ИИ: `gpt: ...` или упоминание/реплай.\n"
+        "🖼️ Можно с фото (vision): подпись `gpt: ...` + фото.\n"
         "🪖 ДМБ: /dmb (только в нужном чате)"
     )
 
@@ -249,65 +279,30 @@ async def dmb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(build_dmb_text(), parse_mode="Markdown")
 
-
-# ---------- Weekly job ----------
-async def weekly_dmb_job(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(
-        chat_id=DMB_CHAT_ID,
-        text=build_dmb_text(),
-        parse_mode="Markdown",
-    )
-
-
-def _sender_tag(msg) -> str:
-    """@username если есть, иначе Имя Фамилия."""
-    u = msg.from_user
-    if not u:
-        return "неизвестно"
-    return f"@{u.username}" if u.username else (u.full_name or "без имени")
-
-
-async def _try_delete_user_message(msg, context: ContextTypes.DEFAULT_TYPE):
-    """Удаляем сообщение пользователя со ссылкой (только если возможно)."""
-    if msg.chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
-        return
-    try:
-        await context.bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)
-    except Exception:
-        # нет прав/сообщение старое/ограничения — молча игнорируем
-        pass
-
-
+# ---------- Main router ----------
 async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if not msg or not msg.text:
+    if not msg:
         return
 
-    text = msg.text.strip()
+    # текст может быть в msg.text или в подписи к фото msg.caption
+    text = (msg.text or msg.caption or "").strip()
 
     # 1) Скачивание видео по ссылкам + ⏳, который удаляется
-    if is_supported_url(text):
+    if text and is_supported_url(text):
         loop = asyncio.get_running_loop()
         file_path = None
         status_msg = None
 
-        # запомним данные сообщения со ссылкой
         link_chat_id = msg.chat_id
         link_message_id = msg.message_id
         sender = _sender_pretty(msg)
 
         try:
-            # ⏳
             status_msg = await context.bot.send_message(chat_id=link_chat_id, text="⏳")
-
-            # качаем
             file_path = await loop.run_in_executor(None, lambda: ytdlp_download(text))
 
-            # отправляем видео НЕ reply, чтобы не зависеть от удаляемого сообщения
-            caption = (
-                f"✅ *Видео готово*\n"
-                f"👤 От: *{sender}*\n"
-            )
+            caption = f"✅ *Видео готово*\n👤 От: *{sender}*\n"
 
             with open(file_path, "rb") as video_file:
                 await context.bot.send_video(
@@ -317,15 +312,11 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown",
                 )
 
-            # удаляем ссылку ТОЛЬКО после успешной отправки видео
-            # (и только если это группа/супергруппа, в ЛС удалить нельзя)
             if msg.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
                 await _delete_message_safe(context, link_chat_id, link_message_id)
 
         except Exception as e:
             logger.exception("Download error")
-
-            # ВАЖНО: ошибку отправляем НЕ reply
             await context.bot.send_message(
                 chat_id=link_chat_id,
                 text=f"❌ *Ошибка загрузки*\n👤 От: *{sender}*\n`{e}`",
@@ -333,14 +324,12 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         finally:
-            # удаляем ⏳
             if status_msg:
                 try:
                     await status_msg.delete()
                 except Exception:
                     pass
 
-            # чистим файл
             if file_path and os.path.exists(file_path):
                 try:
                     os.remove(file_path)
@@ -357,9 +346,17 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         and msg.reply_to_message.from_user.id == context.bot.id
     )
 
-    triggered = text.lower().startswith("gpt:") or is_reply_to_bot
-    if bot_username:
-        triggered = triggered or is_bot_mentioned(update, bot_username)
+    triggered = False
+
+    # gpt: работает и для текста, и для подписи к фото
+    if text.lower().startswith("gpt:"):
+        triggered = True
+
+    if not triggered and bot_username and msg.text:
+        triggered = is_bot_mentioned(update, bot_username)
+
+    if not triggered and is_reply_to_bot:
+        triggered = True
 
     if not triggered:
         return
@@ -367,21 +364,33 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = text
     if prompt.lower().startswith("gpt:"):
         prompt = prompt[4:].strip()
-    if bot_username:
+    if bot_username and prompt:
         prompt = strip_bot_mention(prompt, bot_username)
 
     if not prompt:
         await msg.reply_text("Напиши вопрос после `gpt:` или после упоминания 🙂")
         return
 
+    # если есть фото — заберём bytes
+    image_bytes = None
+    if msg.photo:
+        try:
+            tg_file = await msg.photo[-1].get_file()
+            image_bytes = bytes(await tg_file.download_as_bytearray())
+        except Exception:
+            image_bytes = None
+
     try:
         await msg.reply_chat_action("typing")
-        answer = await ask_llm(prompt)
+        answer = await ask_llm_openrouter(prompt, image_bytes=image_bytes)
+
         if not answer:
             answer = "Не смог сформировать ответ. Попробуй переформулировать вопрос."
         if len(answer) > 3900:
             answer = answer[:3900] + "…"
+
         await msg.reply_text(answer)
+
     except Exception as e:
         logger.exception("LLM error")
         await msg.reply_text(f"❌ Ошибка ИИ\n{e}")
@@ -393,27 +402,9 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("chatid", chatid))
     app.add_handler(CommandHandler("dmb", dmb))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, router))
 
-    # ===== Weekly DMB: every Friday 21:00 =====
-    now = datetime.now()
-    target_weekday = 4          # Friday
-    target_time = time(21, 0)   # 21:00
-
-    days_ahead = (target_weekday - now.weekday()) % 7
-    first_run = datetime.combine((now + timedelta(days=days_ahead)).date(), target_time)
-    if first_run <= now:
-        first_run += timedelta(days=7)
-
-    if app.job_queue is None:
-        print('JobQueue не установлен. Поставь: pip install "python-telegram-bot[job-queue]"')
-    else:
-        app.job_queue.run_repeating(
-            weekly_dmb_job,
-            interval=7 * 24 * 60 * 60,
-            first=first_run,
-            name="weekly_dmb",
-        )
+    # Ловим: текст, фото (и подписи к фото тоже попадут в update.message)
+    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, router))
 
     print("BOT STARTED 🚀")
     app.run_polling()
@@ -421,5 +412,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
