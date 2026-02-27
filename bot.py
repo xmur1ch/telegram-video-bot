@@ -31,7 +31,7 @@ from openai import AsyncOpenAI
 # TOKENS (лучше через ENV)
 # =======================
 TOKEN = "8348752030:AAEK38inXyBghSGOAnxBCG6GxRYei-AJA_4"  # <-- поставь реальный токен или ENV
-OPENROUTER_API_KEY = "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"  # <-- ключ OpenRouter
+OPENROUTER_API_KEY = "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"  # <-- ключ OpenRouter
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "x-ai/grok-4-fast")
 
 # OpenRouter client (OpenAI-compatible)
@@ -411,6 +411,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
