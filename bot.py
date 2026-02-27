@@ -40,12 +40,11 @@ openrouter_client = (
         base_url="https://openrouter.ai/api/v1",
         api_key=OPENROUTER_API_KEY,
         default_headers={
-            # необязательно, но полезно
             "HTTP-Referer": "https://localhost",
             "X-Title": "telegram-bot",
         },
     )
-    if OPENROUTER_API_KEY and OPENROUTER_API_KEY != "мое"
+    if OPENROUTER_API_KEY
     else None
 )
 
@@ -412,4 +411,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
